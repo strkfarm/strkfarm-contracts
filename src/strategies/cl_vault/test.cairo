@@ -225,7 +225,7 @@ pub mod test_cl_vault {
         calldata.append(constants::EKUBO_CORE().into());
         calldata.append(constants::ORACLE_OURS().into());
         let fee_settings = FeeSettings {
-            fee_bps: fee_bps, fee_collector: contract_address_const::<0x123>()
+            fee_bps: fee_bps, fee_collector: contract_address_const::<0x053c69eDcB1a65A8687Ec7Ad8fC23fD7cc815186fE4380bb6A5bf31df52361FF>()
         };
         fee_settings.serialize(ref calldata);
         let (address, _) = clVault.deploy(@calldata).expect('ClVault deploy failed');
@@ -261,7 +261,7 @@ pub mod test_cl_vault {
         calldata.append(constants::EKUBO_CORE().into());
         calldata.append(constants::ORACLE_OURS().into());
         let fee_settings = FeeSettings {
-            fee_bps: fee_bps, fee_collector: contract_address_const::<0x123>()
+            fee_bps: fee_bps, fee_collector: contract_address_const::<0x053c69eDcB1a65A8687Ec7Ad8fC23fD7cc815186fE4380bb6A5bf31df52361FF>()
         };
         fee_settings.serialize(ref calldata);
         let (address, _) = clVault.deploy(@calldata).expect('ClVault deploy failed');
@@ -563,6 +563,8 @@ pub mod test_cl_vault {
         ERC20Helper::approve(constants::WST_ADDRESS(), clVault.contract_address, amount);
 
         let _ = clVault.deposit(amount, amount, this);
+        let liquidity1 = clVault.get_position().liquidity;
+        println!("liquidity before {:?}", liquidity1);
         /// println!("deposit passed");
         let old_bounds = clVault.get_settings().bounds_settings;
 
@@ -606,7 +608,8 @@ pub mod test_cl_vault {
         clVault.rebalance(bounds, swap_params);
         /// println!("rebalance passed");
         // assert total usd value is roughly same after rebalance
-
+        let liquidity2 = clVault.get_position().liquidity;
+        println!("liquidity after {:?}", liquidity2);
         // assert bounds are updated and current liquidity > 0
         let liquidity_after_rebalance = clVault.get_position().liquidity;
         assert(liquidity_after_rebalance > 0, 'invalid liquidity');
@@ -951,7 +954,7 @@ pub mod test_cl_vault {
         let pre_bal_strk = ERC20Helper::balanceOf(
             constants::STRK_ADDRESS(), clVault.contract_address
         );
-        let fee_collector = contract_address_const::<0x123>();
+        let fee_collector = clVault.get_settings().fee_settings.fee_collector;
         let fee_pre = ERC20Helper::balanceOf(constants::STRK_ADDRESS(), fee_collector);
         let claim = Claim {
             id: 0, amount: pow::ten_pow(18).try_into().unwrap(), claimee: clVault.contract_address,
@@ -1053,6 +1056,318 @@ pub mod test_cl_vault {
         stop_cheat_caller_address(clVault.contract_address);
     }
 
+    // additional tests 
+    #[test]
+    #[fork("mainnet_1134787")]
+    fn test_cl_vault_all_functions() {
+        let amount = 10 * pow::ten_pow(18);
+        vault_init(amount * 2);
+
+        let this = get_contract_address();
+        let (clVault, _) = deploy_cl_vault();
+        ERC20Helper::approve(constants::ETH_ADDRESS(), clVault.contract_address, amount);
+        ERC20Helper::approve(constants::WST_ADDRESS(), clVault.contract_address, amount);
+
+        let expected_shares1 = clVault.convert_to_shares(amount, amount);
+        let shares1 = clVault.deposit(amount, amount, this);
+        assert(shares1 > 0, 'invalid shares minted');
+        assert(shares1 == expected_shares1, 'invalid shares minted');
+        let settings: ClSettings = clVault.get_settings();
+        let nft_id: u64 = settings.contract_nft_id;
+        let nft_id_u256: u256 = nft_id.into();
+        let nft_disp = IEkuboNFTDispatcher { contract_address: settings.ekubo_positions_nft };
+
+        assert(nft_disp.ownerOf(nft_id_u256) == clVault.contract_address, 'invalid owner');
+        assert(
+            ERC20Helper::balanceOf(constants::ETH_ADDRESS(), clVault.contract_address) == 0,
+            'invalid ETH amount'
+        );
+        assert(
+            ERC20Helper::balanceOf(constants::WST_ADDRESS(), clVault.contract_address) == 0,
+            'invalid WST amount'
+        );
+
+        let cl_shares_bal = ERC20Helper::balanceOf(clVault.contract_address, this);
+        let total_liquidity: u256 = clVault.get_position().liquidity.into();
+        assert((cl_shares_bal) == (total_liquidity), 'invalid shares minted');
+
+        println!("***********************************************************");
+        println!("DEPOSIT DONE");
+        println!("***********************************************************");
+
+        let old_bounds = clVault.get_settings().bounds_settings;
+        let new_lower_bound: u128 = 169000;
+        let new_upper_bound: u128 = 180000;
+        let bounds = Bounds {
+            lower: i129 { mag: new_lower_bound, sign: false },
+            upper: i129 { mag: new_upper_bound, sign: false }
+        };
+        let mut eth_route = get_eth_wst_route();
+        eth_route.percent = 1000000000000;
+        let pool_key = get_pool_key();
+        let additional: Array<felt252> = array![
+            pool_key.token0.into(), // token0
+            pool_key.token1.into(), // token1
+            pool_key.fee.into(), // fee
+            pool_key.tick_spacing.into(), // tick space
+            pool_key.extension.into(), // extension
+            pow::ten_pow(70).try_into().unwrap(), // sqrt limit
+        ];
+        eth_route.additional_swap_params = additional;
+        let routes: Array<Route> = array![eth_route.clone()];
+        let swap_params = AvnuMultiRouteSwap {
+            token_from_address: eth_route.clone().token_from,
+            token_from_amount: 1701 * pow::ten_pow(18) / 1000,
+            token_to_address: eth_route.token_to,
+            token_to_amount: 0,
+            token_to_min_amount: 0,
+            beneficiary: clVault.contract_address,
+            integrator_fee_amount_bps: 0,
+            integrator_fee_recipient: contract_address_const::<0x00>(),
+            routes
+        };
+        clVault.rebalance(bounds, swap_params);
+        let liquidity_after_rebalance = clVault.get_position().liquidity;
+        assert(liquidity_after_rebalance > 0, 'invalid liquidity');
+        let bounds = clVault.get_settings().bounds_settings;
+        assert(bounds.lower.mag == new_lower_bound, 'invalid bound written');
+        assert(bounds.upper.mag == new_upper_bound, 'invalid bound written');
+
+        // assert that old bounds have 0 liquidity
+        let position_key = PositionKey {
+            salt: clVault.get_settings().contract_nft_id,
+            owner: constants::EKUBO_POSITIONS(),
+            bounds: old_bounds
+        };
+        let pos_old_bounds = IEkuboCoreDispatcher { contract_address: constants::EKUBO_CORE() }
+            .get_position(clVault.get_settings().pool_key, position_key);
+        assert(pos_old_bounds.liquidity == 0, 'Invalid liquidity rebalanced');
+
+        println!("***********************************************************");
+        println!("REBALANCE DONE");
+        println!("***********************************************************");
+
+        // handle fees
+        let liquidity_before_fees = clVault.get_position().liquidity;
+        clVault.handle_fees();
+        let liquidity_after_fees = clVault.get_position().liquidity;
+        assert(liquidity_after_fees == liquidity_before_fees, 'invalid liquidity');
+
+        let pool_price_before = IEkuboDispatcher { contract_address: constants::EKUBO_POSITIONS() }
+            .get_pool_price(get_pool_key())
+            .tick
+            .mag;
+
+        let eth_route = get_eth_wst_route();
+        ekubo_swap(
+            eth_route, constants::ETH_ADDRESS(), constants::WST_ADDRESS(), 1000000000000000000
+        );
+
+        let wst_route = get_wst_eth_route();
+        ekubo_swap(
+            wst_route, constants::WST_ADDRESS(), constants::ETH_ADDRESS(), 400000000000000000
+        );
+
+        let wst_route = get_wst_eth_route();
+        ekubo_swap(
+            wst_route, constants::WST_ADDRESS(), constants::ETH_ADDRESS(), 300000000000000000
+        );
+
+        let eth_route = get_eth_wst_route();
+        ekubo_swap(
+            eth_route, constants::ETH_ADDRESS(), constants::WST_ADDRESS(), 100000000000000000
+        );
+
+        let eth_route = get_eth_wst_route();
+        ekubo_swap(
+            eth_route, constants::ETH_ADDRESS(), constants::WST_ADDRESS(), 200000000000000000
+        );
+
+        let pool_price_after = IEkuboDispatcher { contract_address: constants::EKUBO_POSITIONS() }
+            .get_pool_price(get_pool_key())
+            .tick
+            .mag;
+        assert(pool_price_before != pool_price_after, 'invalid swap pool');
+
+        //call handle fees and check how much fees was generated from collect fees
+        let liquidity_before_fees = clVault.get_position().liquidity;
+        clVault.handle_fees();
+        let liquidity_after_fees = clVault.get_position().liquidity;
+
+        assert(liquidity_after_fees > liquidity_before_fees, 'invalid liquidity');
+
+        println!("***********************************************************");
+        println!("HANDLE FEES DONE");
+        println!("***********************************************************");
+
+        //withdraw
+        let eth_before_withdraw = ERC20Helper::balanceOf(constants::ETH_ADDRESS(), this);
+        let wst_before_withdraw = ERC20Helper::balanceOf(constants::WST_ADDRESS(), this);
+
+        let withdraw_amount = 10 * pow::ten_pow(18);
+        clVault.withdraw(withdraw_amount, this);
+
+        let shares_bal = ERC20Helper::balanceOf(clVault.contract_address, this);
+        assert(shares_bal == (shares1 - withdraw_amount), 'invalid shares minted');
+        let partial_eth_bal = ERC20Helper::balanceOf(constants::ETH_ADDRESS(), this);
+        let partial_wst_bal = ERC20Helper::balanceOf(constants::WST_ADDRESS(), this);
+        assert(partial_eth_bal > eth_before_withdraw, 'eth not withdrawn');
+        assert(partial_wst_bal > wst_before_withdraw, 'wst not withdrawn');
+
+        println!("***********************************************************");
+        println!("WITHDRAW DONE");
+        println!("***********************************************************");
+    }
+
+    #[test]
+    #[fork("mainnet_1134787")]
+    fn test_ekubo_withdraw_entire_liquidity() {
+        let amount = 10 * pow::ten_pow(18);
+        let this = get_contract_address();
+    
+        let (clVault, _) = deploy_cl_vault();
+        assert(clVault.get_settings().contract_nft_id == 0, 'nft id not zero on deploy');
+        vault_init(amount);
+        ERC20Helper::approve(constants::ETH_ADDRESS(), clVault.contract_address, amount * 2);
+        ERC20Helper::approve(constants::WST_ADDRESS(), clVault.contract_address, amount * 2);
+
+        let shares1 = clVault.deposit(amount, amount, this);
+
+        // withdraw entire liquidity
+        clVault.withdraw(shares1, this);
+
+        let liquidity_left = clVault.get_position().liquidity;
+        let neg_liq = liquidity_left / 1000;
+        assert(neg_liq == 0, 'liquidity not 0');
+
+        assert(
+            ERC20Helper::balanceOf(constants::ETH_ADDRESS(), clVault.contract_address) == 0,
+            'invalid token bal'
+        );
+        assert(
+            ERC20Helper::balanceOf(constants::WST_ADDRESS(), clVault.contract_address) == 0,
+            'invalid token bal'
+        );
+
+        let shares_bal = ERC20Helper::balanceOf(clVault.contract_address, this);
+        assert(shares_bal == 0, 'invalid shares minted');
+
+        // test next deposit 
+        let amount = 10 * pow::ten_pow(18);
+        let this = get_contract_address();
+    
+        let (clVault, _) = deploy_cl_vault();
+        assert(clVault.get_settings().contract_nft_id == 0, 'nft id not zero on deploy');
+        vault_init(amount);
+        ERC20Helper::approve(constants::ETH_ADDRESS(), clVault.contract_address, amount * 2);
+        ERC20Helper::approve(constants::WST_ADDRESS(), clVault.contract_address, amount * 2);
+
+        let _ = clVault.deposit(amount, amount, this);
+    }
+
+    #[test]
+    #[fork("mainnet_1134787")]
+    fn test_ekubo_low_liquidity() {
+        let amount = 10 * pow::ten_pow(18);
+        let this = get_contract_address();
+    
+        let (clVault, _) = deploy_cl_vault();
+        assert(clVault.get_settings().contract_nft_id == 0, 'nft id not zero on deploy');
+        vault_init(amount);
+        ERC20Helper::approve(constants::ETH_ADDRESS(), clVault.contract_address, amount * 2);
+        ERC20Helper::approve(constants::WST_ADDRESS(), clVault.contract_address, amount * 2);
+
+        let deposit_amount = 1;
+        let shares1 = clVault.deposit(deposit_amount, deposit_amount, this);
+
+        clVault.withdraw(shares1, this);
+
+        let liquidity_left = clVault.get_position().liquidity;
+        println!("liquidity after withdraw {:?}", liquidity_left);
+        // let neg_liq = liquidity_left / 1000;
+        assert(liquidity_left == 0, 'liquidity not 0');
+
+        assert(
+            ERC20Helper::balanceOf(constants::ETH_ADDRESS(), clVault.contract_address) == 0,
+            'invalid token bal'
+        );
+        assert(
+            ERC20Helper::balanceOf(constants::WST_ADDRESS(), clVault.contract_address) == 0,
+            'invalid token bal'
+        );
+    }
+
+    #[test]
+    #[fork("mainnet_1134787")]
+    fn test_ekubo_fee_ranges() {
+        let amount = 10 * pow::ten_pow(18);
+        vault_init(amount * 2);
+
+        let this = get_contract_address();
+        let (clVault, _) = deploy_cl_vault();
+        ERC20Helper::approve(constants::ETH_ADDRESS(), clVault.contract_address, amount);
+        ERC20Helper::approve(constants::WST_ADDRESS(), clVault.contract_address, amount);
+
+        let _ = clVault.deposit(amount, amount, this);
+
+        let pool_price_before = IEkuboDispatcher { contract_address: constants::EKUBO_POSITIONS() }
+            .get_pool_price(get_pool_key())
+            .tick
+            .mag;
+
+        let eth_route = get_eth_wst_route();
+        ekubo_swap(
+            eth_route, constants::ETH_ADDRESS(), constants::WST_ADDRESS(), 1000000000000000000
+        );
+
+        let wst_route = get_wst_eth_route();
+        ekubo_swap(
+            wst_route, constants::WST_ADDRESS(), constants::ETH_ADDRESS(), 400000000000000000
+        );
+
+        let wst_route = get_wst_eth_route();
+        ekubo_swap(
+            wst_route, constants::WST_ADDRESS(), constants::ETH_ADDRESS(), 300000000000000000
+        );
+
+        let eth_route = get_eth_wst_route();
+        ekubo_swap(
+            eth_route, constants::ETH_ADDRESS(), constants::WST_ADDRESS(), 100000000000000000
+        );
+
+        let eth_route = get_eth_wst_route();
+        ekubo_swap(
+            eth_route, constants::ETH_ADDRESS(), constants::WST_ADDRESS(), 200000000000000000
+        );
+
+        let pool_price_after = IEkuboDispatcher { contract_address: constants::EKUBO_POSITIONS() }
+            .get_pool_price(get_pool_key())
+            .tick
+            .mag;
+
+        assert(pool_price_before != pool_price_after, 'invalid swap pool');
+
+        let fee_collector = clVault.get_settings().fee_settings.fee_collector;
+        let token0_bal_before = ERC20Helper::balanceOf(constants::WST_ADDRESS(), fee_collector);
+        let token1_bal_before = ERC20Helper::balanceOf(constants::ETH_ADDRESS(), fee_collector);
+        let settings = clVault.get_settings();
+        let token_info = IEkuboDispatcher { contract_address: constants::EKUBO_POSITIONS() }
+            .get_token_info(settings.contract_nft_id, settings.pool_key, settings.bounds_settings);
+        let fee0 = token_info.fees0;
+        let fee1 = token_info.fees1;
+        clVault.handle_fees();
+        let token0_bal_after = ERC20Helper::balanceOf(constants::WST_ADDRESS(), fee_collector);
+        let token1_bal_after = ERC20Helper::balanceOf(constants::ETH_ADDRESS(), fee_collector);
+
+        let fee0_strat = (fee0.into() * settings.fee_settings.fee_bps) / 10000;
+        let fee1_strat = (fee1.into() * settings.fee_settings.fee_bps) / 10000;
+
+        let fee0_collector = token0_bal_after - token0_bal_before;
+        let fee1_collector = token1_bal_after - token1_bal_before;
+
+        assert(fee0_strat == fee0_collector, 'invalid fee0 transfered');
+        assert(fee1_strat == fee1_collector, 'invalid fee1 transfered');
+    }
 
     fn STRKETHAvnuSwapInfo(amount: u256, beneficiary: ContractAddress) -> AvnuMultiRouteSwap {
         let additional1: Array<felt252> = array![
