@@ -11,6 +11,10 @@ pub fn VESU_SINGLETON_ADDRESS() -> ContractAddress {
     contract_address_const::<0x2545b2e5d519fc230e9cd781046d3a64e092114f07e44771e0d719d148725ef>()
 }
 
+pub fn EKUBO_FEE_COLLECTOR() -> ContractAddress {
+    contract_address_const::<0x053c69eDcB1a65A8687Ec7Ad8fC23fD7cc815186fE4380bb6A5bf31df52361FF>()
+}
+
 pub fn RE7_XSTRK_POOL() -> ContractAddress {
     contract_address_const::<0x52fb52363939c3aa848f8f4ac28f0a51379f8d1b971d8444de25fbd77d8f161>()
 }

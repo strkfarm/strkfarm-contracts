@@ -3,7 +3,6 @@ pub mod test_vesu_rebalance {
     use snforge_std::{
         declare, ContractClassTrait, start_cheat_caller_address, stop_cheat_caller_address,
         start_cheat_block_number_global, start_cheat_block_timestamp_global,
-        stop_cheat_block_number_global,
     };
     use starknet::contract_address::contract_address_const;
     use snforge_std::{DeclareResultTrait};
@@ -220,7 +219,7 @@ pub mod test_vesu_rebalance {
         /// println!("prev index before {:?}", prev_index_before);
         /// println!("prev index after {:?}", prev_index_after);
         assert(
-            prev_index_after <= prev_index_before + 1 && prev_index_after >= prev_index_before - 1,
+            prev_index_before - 1 <= prev_index_after && prev_index_after <= prev_index_before + 1,
             'index not updated'
         );
 
@@ -639,7 +638,6 @@ pub mod test_vesu_rebalance {
         let (vesu_address, vesu_vault, vesu_erc4626) = deploy_usdc_vesu_vault();
 
         ERC20Helper::approve(constants::USDC_ADDRESS(), vesu_address, amount);
-        let bal = ERC20Helper::balanceOf(constants::USDC_ADDRESS(), this);
 
         // first deposit
         let prev_index_before = vesu_vault.get_previous_index();
@@ -657,7 +655,6 @@ pub mod test_vesu_rebalance {
 
         start_cheat_block_number_global(block + 100000);
         start_cheat_block_timestamp_global(time + 100000);
-        let total_assets = vesu_erc4626.total_assets();
 
         // second deposit
         let amount = 500 * pow::ten_pow(6);
@@ -665,7 +662,6 @@ pub mod test_vesu_rebalance {
         let bal_before = ERC20Helper::balanceOf(USDC_VTOKEN_GENESIS(), fee_receiver);
         assert(bal_before == 0, 'invalid fee [1]');
         ERC20Helper::approve(constants::USDC_ADDRESS(), vesu_address, amount);
-        let prev_index_before = vesu_vault.get_previous_index();
         let _ = vesu_erc4626.deposit(amount, this);
         let allowed_pools = vesu_vault.get_allowed_pools();
         let v_token = *allowed_pools.at(default_id.into()).v_token;
