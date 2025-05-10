@@ -17,15 +17,18 @@ async function main() {
     // const acc = getAccount(ACCOUNT_NAME);
     const acc = new Account(getRpcProvider(), process.env.ADDRESS!, process.env.PK!, "1", '0x3');
     
-    const depositCalls = await vesuRebalance.depositCall(
-        {
-            tokenInfo: vesuRebalance.asset(),
-            amount: new Web3Number(0.01, 6)
-        }, ContractAddr.from(acc.address)
-    );
-    console.log(depositCalls)
-    const gas = await acc.estimateInvokeFee(depositCalls);
-    console.log(`Estimated gas: `, gas);
+    // const depositCalls = await vesuRebalance.depositCall(
+    //     {
+    //         tokenInfo: vesuRebalance.asset(),
+    //         amount: new Web3Number(0.01, 6)
+    //     }, ContractAddr.from(acc.address)
+    // );
+    // console.log(depositCalls)
+    // const gas = await acc.estimateInvokeFee(depositCalls);
+    // console.log(`Estimated gas: `, gas);
+
+    const fees = await vesuRebalance.getFee(await vesuRebalance.getPools());
+    console.log(`Fees: ${JSON.stringify(fees)}`);
     // const tx = await acc.execute(depositCalls);
     // console.log(tx.transaction_hash);
     // await getRpcProvider().waitForTransaction(tx.transaction_hash, {
@@ -79,7 +82,7 @@ async function harvest() {
         const call = await vesuRebalance.harvest(riskAcc);
         calls.push(...call);
     }
-    const _calls = [...calls.slice(0, 3)]; // ! TODO Ensure I switch to all calls later
+    const _calls = [...calls.slice(0, 4)];
     const gas = await riskAcc.estimateInvokeFee(_calls);
     const tx = await riskAcc.execute(_calls);
     console.log(`Harvest tx: ${tx.transaction_hash}`);
